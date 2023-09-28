@@ -1,0 +1,869 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <title>Rhombicuboctahedral Chess</title>
+    <link rel="apple-touch-icon" sizes="180x180" href="./favicon_io/apple-touch-icon.png">
+    <link rel="icon" type="image/png" sizes="32x32" href="./favicon_io/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="./favicon_io/favicon-16x16.png">
+    <link rel="manifest" href="./favicon_io/site.webmanifest">
+    <style>
+        body {
+            font-family: tahoma, sans-serif;
+            font-size: 20px;
+            color: rgb(255,255,255);
+            background-size: cover;
+            background-position: center;
+            background-attachment: fixed;
+            background-color: rgb(0, 50, 50);
+        }
+
+        input {
+            font-family: tahoma, sans-serif;
+            font-size: 20px;
+            background-color: rgba(0,0,0,0.5);
+            color: rgb(255,255,255);
+            border: 1px solid rgb(127,127,127);
+            border-radius: 8px;
+        }
+
+        select {
+            font-family: tahoma, sans-serif;
+            font-size: 20px;
+            background-color: rgba(0,0,0,0.5);
+            color: rgb(255,255,255);
+            border: 1px solid rgb(127,127,127);
+            border-radius: 8px;
+        }
+
+        .box {
+            background-color: rgba(0,0,0, 0.8);
+            border: 1px solid rgb(127,127,127);
+            border-radius: 8px;
+            padding: 8px;
+            margin: 4px;
+            width: fit-content;
+            transition-property: all;
+            transition-duration: 1s;
+        }
+
+        input:hover {
+            background-color: rgba(80,80,80,0.5);
+            color: rgb(255,255,255);
+        }
+    </style>
+  </head>
+<body>
+    <div class = "box">
+            <canvas id="canvas" width="800" height="800" style="border: 1pt solid black;"></canvas>
+    </div>
+    <div class = "box">
+        <select id = "gameSelect">
+            <option value="standard" selected> Standard Game</option>
+            <option value="endgame0"> Endgame (KQR vs K)</option>
+            <option value="endgame1"> Endgame (KRR vs K)</option>
+            <option value="endgame2"> Endgame (KQ vs K)</option>
+        </select>
+        <input type="button" id = "startButton" value="Start"></input><br>
+        <br>
+        <label>Enforce legal moves</label><input type="checkbox" id = "legal" checked></input><label>(Uncheck this to edit the board position)</label><br>
+        <input type="button" id = "removeButton" value="Remove Piece (R)"></input><br>
+        <input type="button" id = "addButton" value="Add Piece (E)"></input>
+        <select id = "colorSelect">
+            <option value="white" selected>White</option>
+            <option value="black">Black</option>
+        </select>
+        <select id = "pieceSelect">
+            <option value="K"> King</option>
+            <option value="Q" selected> Queen</option>
+            <option value="R"> Rook</option>
+            <option value="B"> Bishop</option>
+            <option value="N"> Knight</option>
+            <option value="P"> Pawn</option>
+        </select>
+    </div>
+    <div class = "box">
+        <label>Controls:</label><br>
+        <label>Click to select a piece. Click again to move it.</label><br>
+        <label>Use the arrow keys or WASD to rotate the board. Press Q to reset the rotation.</label><br>
+        <br>
+        <label>Pieces move the same as in standard chess (with respect to orthogonal and diagonal square relationships) except:</label><br>
+        <label>Pieces may not move onto or through black triangular corners (except for the knight's usual jump move).</label><br>
+        <label>Pieces may not move to the square they started on (even if they wrap around a full circle).</label><br>
+        <label>Pawns must move away from their starting 3x3 face and promote on their opponent's. (Use the "Add Piece" feature to promote a pawn.)</label><br>
+        <label>Pawns may not move 2 spaces on their first move and may not capture en passant.</label><br>
+        <label>No castling.</label><br>
+        <label>I'm too lazy to program in checks. I guess you lose if your King gets taken lol.</label><br>
+        <br>
+        <label>The geometry of the board is a <a href="https://en.wikipedia.org/wiki/Rhombicuboctahedron">rhombicuboctahedron</a>, with the triangles removed, square faces tiled 3x3, and rectangular faces tiled 1x3.<br> The faces are expanded to a sphere and <a href='https://en.wikipedia.org/wiki/Stereographic_projection'>stereographically projected</a> onto the plane of the screen, with some squishing to make the squares more evenly sized.</label><br>
+    </div>
+<script>
+function mod(x, n) {
+    if (x > 0) {
+        return x % n;
+    }
+    return (x % n + n) % n
+}
+
+function toRect(theta, v1, v2, v3) {
+    return [Math.cos(theta / 2), v1 * Math.sin(theta / 2), v2 * Math.sin(theta / 2), v3 * Math.sin(theta / 2)];
+}
+
+class Quaternion {
+    constructor(re, i, j, k) {
+        this.re = re;
+        this.i = i;
+        this.j = j;
+        this.k = k;
+    }
+
+    add(other) {
+        return new Quaternion(this.re + other.re, this.i + other.i, this.j + other.j, this.k + other.k);
+    }
+
+    sub(other) {
+        return new Quaternion(this.re - other.re, this.i - other.i, this.j - other.j, this.k - other.k);
+    }
+
+    mult(other) {
+        const re = this.re * other.re - this.i * other.i - this.j * other.j - this.k * other.k;
+        const i = this.re * other.i + this.i * other.re + this.j * other.k - this.k * other.j;
+        const j = this.re * other.j - this.i * other.k + this.j * other.re + this.k * other.i;
+        const k = this.re * other.k + this.i * other.j - this.j * other.i + this.k * other.re;
+        return new Quaternion(re, i, j, k);
+    }
+
+    eq(other) {
+        return this.re === other.re && this.i === other.i && this.j === other.j && this.k === other.k;
+    }
+
+    toString() {
+        return `${this.re} + ${this.i}i + ${this.j}j + ${this.k}k`;
+    }
+
+    conj() {
+        return new Quaternion(this.re, -this.i, -this.j, -this.k);
+    }
+
+    im() {
+        return new Quaternion(0, this.i, this.j, this.k);
+    }
+
+    abs() {
+        return Math.sqrt(this.re ** 2 + this.i ** 2 + this.j ** 2 + this.k ** 2);
+    }
+}
+
+const canvas = document.getElementById("canvas");
+let ctx = canvas.getContext("2d");
+
+const width = canvas.width;
+const height = canvas.width;
+
+class Board {
+    constructor() {
+        this.selected = [NaN,NaN,NaN];
+        this.pieces = []
+        this.pieceCode = {
+            'K':'♚',
+            'Q':'♛',
+            'R':'♜',
+            'B':'♝',
+            'N':'♞',
+            'P':'♟'
+        }
+        this.orthogonals = [
+            (coords) => {return coords[0] == -1},
+            (coords) => {return coords[0] == 0},
+            (coords) => {return coords[0] == 1},
+            (coords) => {return coords[1] == -1},
+            (coords) => {return coords[1] == 0},
+            (coords) => {return coords[1] == 1},
+            (coords) => {return coords[2] == -1},
+            (coords) => {return coords[2] == 0},
+            (coords) => {return coords[2] == 1},
+            (coords) => {return (coords[0] == -2) && (coords[1] == -2)},
+            (coords) => {return (coords[0] == -2) && (coords[1] == 2)},
+            (coords) => {return (coords[0] == 2) && (coords[1] == -2)},
+            (coords) => {return (coords[0] == 2) && (coords[1] == 2)},
+            (coords) => {return (coords[0] == -2) && (coords[2] == -2)},
+            (coords) => {return (coords[0] == -2) && (coords[2] == 2)},
+            (coords) => {return (coords[0] == 2) && (coords[2] == -2)},
+            (coords) => {return (coords[0] == 2) && (coords[2] == 2)},
+            (coords) => {return (coords[1] == -2) && (coords[2] == -2)},
+            (coords) => {return (coords[1] == -2) && (coords[2] == 2)},
+            (coords) => {return (coords[1] == 2) && (coords[2] == -2)},
+            (coords) => {return (coords[1] == 2) && (coords[2] == 2)}
+        ]
+        this.diagonals = [
+            (coords) => {return coords[0] + coords[1] + coords[2] == -1},
+            (coords) => {return coords[0] + coords[1] + coords[2] == 0},
+            (coords) => {return coords[0] + coords[1] + coords[2] == 1},
+            (coords) => {return -coords[0] + coords[1] + coords[2] == -1},
+            (coords) => {return -coords[0] + coords[1] + coords[2] == 0},
+            (coords) => {return -coords[0] + coords[1] + coords[2] == 1},
+            (coords) => {return coords[0] - coords[1] + coords[2] == -1},
+            (coords) => {return coords[0] - coords[1] + coords[2] == 0},
+            (coords) => {return coords[0] - coords[1] + coords[2] == 1},
+            (coords) => {return -coords[0] - coords[1] + coords[2] == -1},
+            (coords) => {return -coords[0] - coords[1] + coords[2] == 0},
+            (coords) => {return -coords[0] - coords[1] + coords[2] == 1},
+            (coords) => {return (coords[2] == -2) && (coords[0] + coords[1] == 0)},
+            (coords) => {return (coords[2] == -2) && (-coords[0] + coords[1] == 0)},
+            (coords) => {return (coords[2] == 2) && (coords[0] + coords[1] == 0)},
+            (coords) => {return (coords[2] == 2) && (-coords[0] + coords[1] == 0)},
+            (coords) => {return (coords[1] == -2) && (coords[0] + coords[2] == 0)},
+            (coords) => {return (coords[1] == -2) && (-coords[0] + coords[2] == 0)},
+            (coords) => {return (coords[1] == 2) && (coords[0] + coords[2] == 0)},
+            (coords) => {return (coords[1] == 2) && (-coords[0] + coords[2] == 0)},
+            (coords) => {return (coords[0] == -2) && (coords[1] + coords[2] == 0)},
+            (coords) => {return (coords[0] == -2) && (-coords[1] + coords[2] == 0)},
+            (coords) => {return (coords[0] == 2) && (coords[1] + coords[2] == 0)},
+            (coords) => {return (coords[0] == 2) && (-coords[1] + coords[2] == 0)}
+        ]
+        this.highlighted = {};
+        this.clearHighlights();
+    }
+
+    clearHighlights() {
+        for (let i = -2; i < 3; i++) {
+            for (let j = -2; j < 3; j++) {
+                for (let k = -2; k < 3; k++) {
+                    if (this.isValidCoord([i,j,k])) {
+                        this.highlighted[`${i}${j}${k}`] = false;
+                    }
+                }
+            }
+        }
+    }
+
+    isValidCoord(coords) {
+        const x = coords[0];
+        const y = coords[1];
+        const z = coords[2];
+        if ((Math.abs(x) > 2) || (Math.abs(y) > 2) || (Math.abs(z) > 2)) {
+            return false;
+        }
+        if ((Math.abs(x) == 2) || (Math.abs(y) == 2) || (Math.abs(z) == 2)) {
+            if ((Math.abs(x) == 2) && (Math.abs(y) == 2) && (Math.abs(z) == 2)) {
+                return false;
+            }
+            return true;
+        } else {
+            return false;
+        }
+    }
+
+    rdist(coords1,coords2) {
+        return Math.abs(coords1[0] - coords2[0]) + Math.abs(coords1[1] - coords2[1]) + Math.abs(coords1[2] - coords2[2]);
+    }
+
+    distSup(coords1,coords2) {
+        return Math.max(Math.abs(coords1[0] - coords2[0]), Math.abs(coords1[1] - coords2[1]), Math.abs(coords1[2] - coords2[2]));
+    }
+
+    isOrthogonal(coords1,coords2) {
+        for (let i = 0; i < this.orthogonals.length; i++) {
+            if (this.orthogonals[i](coords1) && this.orthogonals[i](coords2)) {
+                return true;
+            };
+        }
+        return false;
+    }
+
+    isDiagonal(coords1,coords2) {
+        for (let i = 0; i < this.diagonals.length; i++) {
+            if (this.diagonals[i](coords1) && this.diagonals[i](coords2)) {
+                return true;
+            };
+        }
+        return false;
+    }
+
+    getOrthogonal(coords1,coords2) {
+        let l = [];
+        for (let i = 0; i < this.orthogonals.length; i++) {
+            if (this.orthogonals[i](coords1) && this.orthogonals[i](coords2)) {
+                l.push(i);
+            };
+        }
+        return l;
+    }
+
+    getDiagonal(coords1,coords2) {
+        let l = [];
+        for (let i = 0; i < this.diagonals.length; i++) {
+            if (this.diagonals[i](coords1) && this.diagonals[i](coords2)) {
+                l.push(i);
+            };
+        }
+        return l;
+    }
+
+    isOrthogonalConnected(coords1, coords2) {
+        let flag = false;
+        let p_0,p_1,p_2,p_3,r;
+        const orths = this.getOrthogonal(coords1, coords2);
+        for (const k of orths) {
+            flag = true;
+            const orth = this.orthogonals[k];
+            const orthPieces = this.pieces.filter((piece)=> {
+                return orth(piece.coords) && !this.coordEq(piece.coords, coords1) && !this.coordEq(piece.coords, coords2);
+            });
+            if (k < 9) {
+                r = Math.floor(k/3);
+                for (let i = 0; i < orthPieces.length; i++) {
+                    for (let j = i + 1; j < orthPieces.length; j++) {
+                        p_0 = circleTheSquare(projectCoordinate(coords1,r));
+                        p_1 = circleTheSquare(projectCoordinate(coords2,r));
+                        p_2 = circleTheSquare(projectCoordinate(orthPieces[i].coords,r));
+                        p_3 = circleTheSquare(projectCoordinate(orthPieces[j].coords,r));
+                        if (isIntersectBetween(p_0,p_1,p_2,p_3)) {
+                            flag = false;
+                        }
+                    }
+                }
+            }
+            if (k >= 9) {
+                r = (k < 17) ? 0 : 1;
+                for (let i = 0; i < orthPieces.length; i++) {
+                    p_0 = projectCoordinate(coords1,0);
+                    p_1 = projectCoordinate(coords2,0);
+                    p_2 = projectCoordinate(orthPieces[i].coords,0);
+                    if (isBetween(p_0,p_1,p_2)) {
+                        flag = false;
+                    }
+                }
+            }
+            if (flag) {return flag;}
+        }
+        return flag;
+    }
+
+    isDiagonalConnected(coords1, coords2) {
+        let flag = false;
+        let p_0,p_1,p_2,p_3;
+        const diags = this.getDiagonal(coords1, coords2);
+        for (const k of diags) {
+            flag = true;
+            const diag = this.diagonals[k];
+            const diagPieces = this.pieces.filter((piece)=> {
+                return diag(piece.coords) && !this.coordEq(piece.coords, coords1) && !this.coordEq(piece.coords, coords2);
+            });
+            if (k < 12) {
+                for (let i = 0; i < diagPieces.length; i++) {
+                    for (let j = i + 1; j < diagPieces.length; j++) {
+                        p_0 = circleTheSquare(projectCoordinate(coords1,0));
+                        p_1 = circleTheSquare(projectCoordinate(coords2,0));
+                        p_2 = circleTheSquare(projectCoordinate(diagPieces[i].coords,0));
+                        p_3 = circleTheSquare(projectCoordinate(diagPieces[j].coords,0));
+                        if (isIntersectBetween(p_0,p_1,p_2,p_3)) {
+                            flag = false;
+                        }
+                    }
+                }
+            }
+            if (k >= 12) {
+                for (let i = 0; i < diagPieces.length; i++) {
+                    p_0 = projectCoordinate(coords1,0);
+                    p_1 = projectCoordinate(coords2,0);
+                    p_2 = projectCoordinate(diagPieces[i].coords,0);
+                    if (isBetween(p_0,p_1,p_2)) {
+                        flag = false;
+                    }
+                }
+            }
+            if (flag) {return flag;}
+        }
+        return flag;
+    }
+
+    isAdjacent(coords1,coords2) {
+        const orth = (this.rdist(coords1,coords2) == 1);
+        const diag = (this.rdist(coords1,coords2) == 2) && this.isDiagonal(coords1,coords2);
+        return orth || diag;
+    }
+
+    isFrontOrthogonal(coords1,coords2, orient = 1) {
+        const orth = (this.rdist(coords1,coords2) == 1);
+        const f = orient * coords1[1] > orient * coords2[1];
+        const d = this.distSup(coords2,[0,-orient*2,0]) < this.distSup(coords1,[0,-orient*2,0]);
+        return orth && (f || (d && coords1[1] == -orient * 2));
+    }
+
+    isFrontDiagonal(coords1,coords2, orient = 1) {
+        const diag = (this.rdist(coords1,coords2) == 2) && this.isDiagonal(coords1,coords2);
+        const f = orient * coords1[1] > orient * coords2[1];
+        const d = this.rdist(coords2,[0,-orient*2,0]) <= this.rdist(coords1,[0,-orient*2,0]);
+        return diag && (f || (d && coords1[1] == -orient * 2));
+    }
+
+    isKnightConnected(coords1, coords2) {
+        return (this.rdist(coords1,coords2) == 3) && !this.isOrthogonal(coords1,coords2);
+    }
+
+    coordEq(coords1, coords2) {
+        return (coords1[0] == coords2[0]) && (coords1[1] == coords2[1]) && (coords1[2] == coords2[2])
+    }
+
+    getPiece(coords) {
+        for (let i = 0; i < this.pieces.length; i++) {
+            const piece = this.pieces[i];
+            if (this.coordEq(piece.coords, coords)) {
+                return piece;
+            }
+        }
+        return false;
+    }
+
+    getPieceIndex(coords) {
+        for (let i = 0; i < this.pieces.length; i++) {
+            const piece = this.pieces[i];
+            if (this.coordEq(piece.coords, coords)) {
+                return [piece, i];
+            }
+        }
+        return false;
+    }
+
+    add(name, color, coords) {
+        if (this.isValidCoord(coords)) {
+            this.remove(coords);
+            this.pieces.push({name:name, color:color, coords:coords});
+            this.selected = [NaN,NaN,NaN];
+            this.makeHighlights();
+        }
+    }
+
+    remove(coords) {
+        const pieceTo = this.getPieceIndex(coords);
+        if (pieceTo) {
+            this.pieces.splice(pieceTo[1],1);
+            this.makeHighlights();
+            //console.log(pieceTo[0].name)
+        }
+    }
+
+    makeHighlights() {
+        if (!this.isValidCoord(this.selected)) {
+            this.clearHighlights();
+        } else {
+            let pieceFrom,pieceTo;
+            pieceFrom = this.getPiece(this.selected);
+            let validator = (coords, pieceTo) => {return false};
+            if (pieceFrom) {
+                if (pieceFrom.name == 'K') {
+                    validator = (coords, pieceTo) => {
+                        return this.isAdjacent(coords, this.selected) && (pieceTo.color != pieceFrom.color)
+                    };
+                }
+                if (pieceFrom.name == 'Q') {
+                    validator = (coords, pieceTo) => {
+                        return (this.isDiagonalConnected(coords, this.selected) || this.isOrthogonalConnected(coords, this.selected)) && (pieceTo.color != pieceFrom.color)
+                    };
+                }
+                if (pieceFrom.name == 'R') {
+                    validator = (coords, pieceTo) => {
+                        return this.isOrthogonalConnected(coords, this.selected) && (pieceTo.color != pieceFrom.color)
+                    };
+                }
+                if (pieceFrom.name == 'B') {
+                    validator = (coords, pieceTo) => {
+                        return this.isDiagonalConnected(coords, this.selected) && (pieceTo.color != pieceFrom.color)
+                    };
+                }
+                if (pieceFrom.name == 'N') {
+                    validator = (coords, pieceTo) => {
+                        return this.isKnightConnected(coords, this.selected) && (pieceTo.color != pieceFrom.color)
+                    };
+                }
+                if (pieceFrom.name == 'P') {
+                    validator = (coords, pieceTo) => {
+                        return (this.isFrontOrthogonal(this.selected, coords, (-1)**(pieceFrom.color == 'white')) && !pieceTo) || (this.isFrontDiagonal(this.selected, coords, (-1)**(pieceFrom.color == 'white')) && pieceTo && (pieceTo.color != pieceFrom.color))
+                    }
+                }
+            }
+            for (let i = -2; i < 3; i++) {
+                for (let j = -2; j < 3; j++) {
+                    for (let k = -2; k < 3; k++) {
+                        pieceTo = this.getPiece([i,j,k]);
+                        this.highlighted[`${i}${j}${k}`] = validator([i,j,k], pieceTo);
+                    }
+                }
+            }
+            this.highlighted[`${this.selected[0]}${this.selected[1]}${this.selected[2]}`] = true;
+        }
+    }
+    
+    onClick(coords) {
+        if (this.coordEq(coords, this.selected)) {
+            this.selected = [NaN,NaN,NaN];
+        } else {
+            const pieceFrom = this.getPiece(this.selected);
+            const pieceTo = this.getPieceIndex(coords);
+            if (pieceFrom) {
+                //console.log(piece.name, piece.coords, coords)
+                if (!document.getElementById('legal').checked || this.highlighted[`${coords[0]}${coords[1]}${coords[2]}`]) {
+                    this.remove(coords);
+                    pieceFrom.coords = coords;
+                    this.selected = [NaN,NaN,NaN];
+                } else {
+                    this.selected = coords;
+                }
+            } else {
+                this.selected = coords;
+            }
+        }
+        this.makeHighlights();
+    }
+}
+
+const board = new Board();
+
+let myImageData = ctx.getImageData(0,0,width, height);
+
+const gridSize = 50;
+
+function Mobius(x, y) {
+    //return [x, y];
+    const r2 = x**2+y**2;
+    return [2*x/(r2-2*y+1), (-r2+1)/(r2-2*y+1)];
+}
+
+function weirdRound(x) {
+    if (x > 2) {
+        return 2;
+    }
+    if (x < -2) {
+        return -2 ;
+    }
+    else {
+        return Math.round(x);
+    }
+}
+
+function getPixelColor(coords) {
+    const x = weirdRound(2.9*coords[0]);
+    const y = weirdRound(2.9*coords[1]);
+    const z = weirdRound(2.9*coords[2]);
+    if ((Math.abs(x) == 2) && (Math.abs(y) == 2) && (Math.abs(z) == 2)) {
+        return [0,0,0];
+    } else {
+        if (board.highlighted[`${x}${y}${z}`]) {
+            return (mod(x+y+z, 2) == 0) ? [0,150,150] : [200,200,200];
+        } else {
+            return (mod(x+y+z, 2) == 0) ? [0,80,80] : [120,120,120];
+        }
+    }
+}
+
+function stereographicProjection(coords) {
+    const x = coords[0];
+    const y = coords[1];
+    const rSq = x**2 + y**2
+    return [
+        2 * x / (rSq + 1),
+        2 * y / (rSq + 1), 
+        (rSq - 1)/(rSq + 1)
+    ]
+}
+
+function unstereographicProjection(coords) {
+    const x = coords[0];
+    const y = coords[1];
+    const z = coords[2];
+    const rSq = x**2 + y**2 + z**2;
+    return [
+        x / (rSq**0.5 - z),
+        y / (rSq**0.5 - z)
+    ]
+}
+
+function squishMiddle(coords) {
+    const x = coords[0];
+    const y = coords[1];
+    const z = coords[2];
+    if (Math.abs(x) + Math.abs(y) + Math.abs(z) < 5) {
+        return [
+            x * Math.abs(x)**0.4,
+            y * Math.abs(y)**0.4,
+            z * Math.abs(z)**0.4
+        ]
+    } else {
+        return [x,y,z];
+    }
+
+}
+
+function rotate(coords, rot) {
+    const point = new Quaternion(0, coords[0], coords[1], coords[2]);
+    const im = rot.mult(point).mult(rot.conj());
+    return [im.i,im.j,im.k];
+}
+
+let rotation = new Quaternion(1, 0, 0, 0);
+const zoom = 0.02;
+
+const p_0 = circleTheSquare([-2,-2]);
+const p_1 = circleTheSquare([-2,2]);
+const p_2 = circleTheSquare([-2,-1]);
+const p_3 = circleTheSquare([-2,0]);
+
+function isIntersectBetween(p_0, p_1, p_2, p_3) {
+    const m = (p_0[0] - p_1[0]) * (p_2[1] - p_3[1]) - (p_0[1] - p_1[1]) * (p_2[0] - p_3[0]);
+    if (m == 0) {
+        return false;
+    } else {
+        const n = (p_3[0] - p_1[0]) * (p_2[1] - p_3[1]) - (p_3[1] - p_1[1]) * (p_2[0] - p_3[0]);
+        return (n / m >= 0) && (n / m <= 1)
+    }
+}
+
+function isBetween(p_0, p_1, p_2) {
+    const m = p_0[0] - p_1[0];
+    if (m == 0) {
+        const l = p_0[1] - p_1[1];
+        const n = p_2[1] - p_1[1];
+        return (n / l >= 0) && (n / l <= 1);
+    } else {
+        const n = p_2[0] - p_1[0];
+        return (n / m >= 0) && (n / m <= 1);
+    }
+}
+
+function circleTheSquare(coords) {
+    const x = coords[0];
+    const y = coords[1];
+    const d = Math.abs(x) + Math.abs(y);
+    return [
+        x * (10 - d),
+        y * (10 - d)
+    ]
+}
+
+function projectCoordinate(coords, plane) {
+    return coords.toSpliced(plane,1);
+}
+
+function unsquish(coords) {
+    const u = coords[0];
+    const v = coords[1];
+    //1, 32, 256, c
+    //const a = 1;
+    //const b = 32;
+    //const c = 256;
+    const d = (u**2 + v**2)/(zoom**2);
+    //const p = (3*a*c-b**2)/(3*a**2);
+    //console.log(3*a*c-b**2, 3*a**2)
+    //const q = (2*b**3-9*a*b*c+27*a**2*d)/(27*a**3)
+    //const p = -256/3
+    //const q = -8192/27 - d
+    //const delta = Math.sqrt(q**2/4 + p**3/27)
+    //const delta = (q**2/4 + 16777216/729)**0.5
+    //const rSq = Math.cbrt(-q/2 + delta) + Math.cbrt(-q/2 - delta) - 32/3;
+    const S = Math.cbrt(27*d/2+3/2*Math.sqrt(3*d*(27*d+16384))+4096);
+    const rSq = (S + 256/S - 32)/3;
+    const theta = Math.atan2(v,u);
+
+    return [
+        rSq**0.5 * Math.cos(theta),
+        rSq**0.5 * Math.sin(theta)
+    ]
+}
+
+function squish(coords) {
+    const x = coords[0];
+    const y = coords[1];
+    const rSq = x**2 + y**2
+    return [
+        x * (rSq + 16) * zoom,
+        y * (rSq + 16) * zoom
+    ]
+}
+
+function draw() {
+    for (let k = 0; k < Math.floor(myImageData.data.length/4); k++) {
+        
+        const x = (k % width - width/2)/gridSize
+        const y = (width/2 - Math.floor(k/width))/gridSize
+        
+        //const x1 = Mobius(x,y)[0]
+        //const y1 = Mobius(x,y)[1]
+
+        const pixelColor = getPixelColor(rotate(stereographicProjection(squish([x,y])), rotation))
+
+        myImageData.data[4*k+3] = 255 //k
+        myImageData.data[4*k] = pixelColor[0] //r
+        myImageData.data[4*k+1] = pixelColor[1] //g
+        myImageData.data[4*k+2] = pixelColor[2] //b
+    }
+    ctx.putImageData(myImageData, 0, 0);
+
+    for (let i = 0; i < board.pieces.length; i++) {
+        const piece = board.pieces[i];
+        const coords = unsquish(unstereographicProjection(rotate(squishMiddle(piece.coords), rotation.conj())));
+        const x = coords[0] * gridSize + width/2;
+        const y = -coords[1] * gridSize + height/2;
+        //console.log(piece.name,x,y)
+        if (useImages) {
+            ctx.drawImage(images[`${piece.name}_${piece.color}`], x-14.5, y-17, 30, 30);
+        } else {
+            ctx.fillStyle = piece.color;
+            ctx.font = "30px serif";
+            ctx.fillText(board.pieceCode[piece.name], x-8, y+8);
+        }
+    }
+}
+
+let images = {};
+const useImages = true;
+
+for (const name of ['K','Q','R','B','N','P']) {
+    for (const color of ['white','black']) {
+        const s = `${name}_${color}`;
+        images[s] = new Image();
+        images[s].onload = (e) => {draw()}
+        images[s].src = `./images/${s}.png`;
+        document.body.appendChild(images[s]);
+    }
+}
+
+draw();
+
+document.addEventListener('keydown', event => {
+    //yaw left
+    if (event.code == 'ArrowUp' || event.code == 'KeyW') {
+        rotation = rotation.mult(new Quaternion(Math.cos(Math.PI/16), Math.sin(Math.PI/16), 0, 0));
+        draw();
+    }
+    if (event.code == 'ArrowDown' || event.code == 'KeyS') {
+        rotation = rotation.mult(new Quaternion(Math.cos(Math.PI/16), Math.sin(-Math.PI/16), 0, 0));
+        draw();
+    }
+    if (event.code == 'ArrowRight' || event.code == 'KeyD') {
+        rotation = rotation.mult(new Quaternion(Math.cos(Math.PI/16), 0, Math.sin(Math.PI/16), 0));
+        draw();
+    }
+    if (event.code == 'ArrowLeft' || event.code == 'KeyA') {
+        rotation = rotation.mult(new Quaternion(Math.cos(Math.PI/16), 0, Math.sin(-Math.PI/16), 0));
+        draw();
+    }
+    if (event.code == 'KeyQ') {
+        rotation = new Quaternion(1, 0, 0, 0);
+        draw();
+    }
+    if (event.code == 'KeyR') {
+        board.remove(board.selected);
+        draw();
+    }
+    if (event.code == 'KeyE') {
+        const piece = document.getElementById("pieceSelect").value;
+        const color = document.getElementById("colorSelect").value;
+        board.add(piece,color,board.selected);
+        draw();
+    }
+})
+
+
+canvas.addEventListener("click", event => {
+    const x = (event.offsetX - width/2)/gridSize;
+    const y = (-event.offsetY + height/2)/gridSize;
+    let coords = rotate(stereographicProjection(squish([x,y])), rotation);
+    board.onClick([weirdRound(2.9*coords[0]), weirdRound(2.9*coords[1]), weirdRound(2.9*coords[2])]);
+    draw()
+    //selectedSquare.value = `${}, ${}, ${}`;
+    //const key = [[69,83,81],[65,32,68],[40,87,38]][j][i]
+    //document.dispatchEvent(new KeyboardEvent('keydown', {"keyCode": key}))
+})
+
+function setup(mode) {
+    if (mode == 'standard') {
+        board.pieces = [
+            {name: 'K', color:'white', coords:[1,-2,1]},
+            {name: 'Q', color:'white', coords:[-1,-2,1]},
+            {name: 'R', color:'white', coords:[1,-2,-1]},
+            {name: 'R', color:'white', coords:[-1,-2,-1]},
+            {name: 'B', color:'white', coords:[0,-2,-1]},
+            {name: 'B', color:'white', coords:[0,-2,0]},
+            {name: 'N', color:'white', coords:[1,-2,0]},
+            {name: 'N', color:'white', coords:[-1,-2,0]},
+            {name: 'P', color:'white', coords:[-1,-2,-2]},
+            {name: 'P', color:'white', coords:[0,-2,-2]},
+            {name: 'P', color:'white', coords:[1,-2,-2]},
+            {name: 'P', color:'white', coords:[-2,-2,-1]},
+            {name: 'P', color:'white', coords:[-2,-2,0]},
+            {name: 'P', color:'white', coords:[-2,-2,1]},
+            {name: 'P', color:'white', coords:[-1,-2,2]},
+            {name: 'P', color:'white', coords:[0,-2,2]},
+            {name: 'P', color:'white', coords:[1,-2,2]},
+            {name: 'P', color:'white', coords:[2,-2,-1]},
+            {name: 'P', color:'white', coords:[2,-2,0]},
+            {name: 'P', color:'white', coords:[2,-2,1]},
+            {name: 'K', color:'black', coords:[1,2,1]},
+            {name: 'Q', color:'black', coords:[-1,2,1]},
+            {name: 'R', color:'black', coords:[1,2,-1]},
+            {name: 'R', color:'black', coords:[-1,2,-1]},
+            {name: 'B', color:'black', coords:[0,2,-1]},
+            {name: 'B', color:'black', coords:[0,2,0]},
+            {name: 'N', color:'black', coords:[1,2,0]},
+            {name: 'N', color:'black', coords:[-1,2,0]},
+            {name: 'P', color:'black', coords:[-1,2,-2]},
+            {name: 'P', color:'black', coords:[0,2,-2]},
+            {name: 'P', color:'black', coords:[1,2,-2]},
+            {name: 'P', color:'black', coords:[-2,2,-1]},
+            {name: 'P', color:'black', coords:[-2,2,0]},
+            {name: 'P', color:'black', coords:[-2,2,1]},
+            {name: 'P', color:'black', coords:[-1,2,2]},
+            {name: 'P', color:'black', coords:[0,2,2]},
+            {name: 'P', color:'black', coords:[1,2,2]},
+            {name: 'P', color:'black', coords:[2,2,-1]},
+            {name: 'P', color:'black', coords:[2,2,0]},
+            {name: 'P', color:'black', coords:[2,2,1]},
+        ]
+    }
+    if (mode == 'endgame0') {
+        board.pieces = [
+            {name: 'K', color:'white', coords:[1,-2,1]},
+            {name: 'Q', color:'white', coords:[-1,-2,1]},
+            {name: 'R', color:'white', coords:[1,-2,-1]},
+            {name: 'K', color:'black', coords:[0,0,-2]}
+        ]
+    }
+    if (mode == 'endgame1') {
+        board.pieces = [
+        {name: 'K', color:'white', coords:[1,-2,1]},
+            {name: 'R', color:'white', coords:[-1,-2,-1]},
+            {name: 'R', color:'white', coords:[1,-2,-1]},
+            {name: 'K', color:'black', coords:[0,0,-2]}
+        ]
+    }
+    if (mode == 'endgame2') {
+        board.pieces = [
+            {name: 'K', color:'white', coords:[1,-2,1]},
+            {name: 'Q', color:'white', coords:[-1,-2,1]},
+            {name: 'K', color:'black', coords:[0,0,-2]}
+        ]
+    }
+    draw()
+}
+
+setup('standard')
+
+document.getElementById("startButton").addEventListener("click", event => {
+    const mode = document.getElementById("gameSelect").value;
+    setup(mode);
+})
+
+document.getElementById("addButton").addEventListener("click", event => {
+    const piece = document.getElementById("pieceSelect").value;
+    const color = document.getElementById("colorSelect").value;
+    board.add(piece,color,board.selected);
+    draw();
+})
+
+document.getElementById("removeButton").addEventListener("click", event => {
+    board.remove(board.selected);
+    draw();
+})
+
+</script>
+</body>
