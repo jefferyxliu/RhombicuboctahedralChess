@@ -850,7 +850,9 @@ function setup(mode) {
             {name: 'K', color:'black', coords:[0,0,-2]}
         ]
     }
-    draw()
+    board.selected = [NaN,NaN,NaN];
+    board.makeHighlights();
+    draw();
 }
 
 setup('standard')
